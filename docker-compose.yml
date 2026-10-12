@@ -1,0 +1,84 @@
+# Production-style deployment on one machine (a laptop today, a VPS or Railway later).
+#   cp .env.example .env   # fill in secrets
+#   docker compose up -d --build
+#   docker compose --profile tunnel up -d      # also start the Cloudflare Tunnel
+name: team-workspace
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: workspace
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: workspace
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # No published ports: only the app and backup containers can reach the database.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workspace"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: ./web
+    image: team-workspace-app:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://workspace:${POSTGRES_PASSWORD}@postgres:5432/workspace
+      APP_URL: ${APP_URL:?set APP_URL in .env}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env}
+      APP_TIMEZONE: ${APP_TIMEZONE:-Asia/Kolkata}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-Team Workspace <no-reply@localhost>}
+    volumes:
+      - uploads:/data/uploads
+    # Reachable only from this machine. The public route is the Cloudflare Tunnel.
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  cloudflared:
+    image: cloudflare/cloudflared:2025.9.1
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on: [app]
+
+  backup:
+    build: ./backup
+    image: team-workspace-backup:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: workspace
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: workspace
+      BACKUP_PASSPHRASE: ${BACKUP_PASSPHRASE:?set BACKUP_PASSPHRASE in .env}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_HOUR: ${BACKUP_HOUR:-2}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      TZ: ${APP_TIMEZONE:-Asia/Kolkata}
+    volumes:
+      - uploads:/data/uploads
+      - ./backups:/backups
+      - ./backup/rclone:/config/rclone
+
+volumes:
+  pgdata:
+  uploads:
