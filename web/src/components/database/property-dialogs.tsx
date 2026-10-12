@@ -70,6 +70,7 @@ export function PropertyDialog({ open, onOpenChange, db, property, actions }: { 
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the form resets each time the dialog opens
     setName(property?.name ?? "");
     setType(property?.type ?? "text");
     setConfig(property?.config ?? {});

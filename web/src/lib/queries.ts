@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { Property, Row, View } from "@/lib/db-engine/types";
+import type { Role } from "@/lib/roles";
 import { api, ApiError } from "./api";
 
 export type TreeNode = {
@@ -18,7 +19,7 @@ export type TreeNode = {
   access: number;
 };
 export type PageLink = { id: string; title: string; icon: string | null; kind?: string };
-export type Member = { id: string; name: string; email: string; role: "admin" | "member"; disabledAt: string | null; image: string | null };
+export type Member = { id: string; name: string; email: string; role: Role; disabledAt: string | null; image: string | null };
 export type Teamspace = { id: string; name: string; icon: string | null; is_member: boolean; member_count: number };
 
 export type PageData = {

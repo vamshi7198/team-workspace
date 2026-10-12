@@ -53,7 +53,7 @@ on WhatsApp or similar. Everything else works the same.
 docker compose --profile tunnel up -d --build
 docker compose exec app node dist/setup.cjs --workspace "Uncanned" --email you@uncanned.in --name "Your Name"
 ```
-The first build can take 10–30 minutes on a laptop. The second command asks for the first admin's password. Then open `https://workspace.uncanned.in`,
+The first build can take 10–30 minutes on a laptop. The second command asks for the password of the first account, which becomes the workspace **owner**. Then open `https://workspace.uncanned.in`,
 sign in, and invite the team from **Settings → Members**.
 
 Locally it is also at `http://localhost:3000` (only from this machine).

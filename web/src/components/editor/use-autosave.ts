@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 
 export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
@@ -41,7 +41,12 @@ export function useAutosave(opts: {
   const retry = useRef(0);
   const conflictRef = useRef(false);
   const optsRef = useRef(opts);
-  optsRef.current = opts;
+  // Callbacks read the latest options through this ref. Layout effects run at commit, before
+  // any timer or editor event can call them.
+  useLayoutEffect(() => {
+    optsRef.current = opts;
+  });
+  const saveRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
 
   const isDirty = () => seq.current !== savedSeq.current;
 
@@ -53,6 +58,11 @@ export function useAutosave(opts: {
   const clearDraft = useCallback(() => {
     try { localStorage.removeItem(draftKey(pageId)); } catch {}
   }, [pageId]);
+
+  const schedule = useCallback((ms: number) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void saveRef.current(), ms);
+  }, []);
 
   const save = useCallback(async (force = false): Promise<void> => {
     if (inflight.current) {
@@ -94,12 +104,10 @@ export function useAutosave(opts: {
     })();
     inflight.current = run;
     return run;
-  }, [pageId, clearDraft]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const schedule = (ms: number) => {
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => void save(), ms);
-  };
+  }, [pageId, clearDraft, schedule]);  
+  useLayoutEffect(() => {
+    saveRef.current = save;
+  }, [save]);
 
   /** Call on every local edit. */
   const markDirty = useCallback(() => {
@@ -108,7 +116,7 @@ export function useAutosave(opts: {
     if (!conflictRef.current) setStatus((s) => (s === "saving" ? s : "dirty"));
     writeDraft();
     schedule(800);
-  }, [enabled, writeDraft]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, writeDraft, schedule]);  
 
   const flush = useCallback(async () => {
     if (timer.current) clearTimeout(timer.current);
@@ -149,6 +157,7 @@ export function useAutosave(opts: {
   useEffect(() => {
     if (!enabled) return;
     const d = readDraft(pageId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- read browser storage after mount so server and client render the same HTML
     if (d) setDraft(d);
   }, [pageId, enabled]);
 
@@ -184,7 +193,7 @@ export function useAutosave(opts: {
       } catch { /* offline: try again next tick */ }
     }, 10_000);
     return () => clearInterval(t);
-  }, [pageId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pageId]);  
 
   // Warn before closing the tab with unsaved edits; save on unmount.
   useEffect(() => {

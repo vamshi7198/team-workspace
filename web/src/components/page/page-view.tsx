@@ -12,6 +12,7 @@ import { DatabaseView } from "@/components/database/database-view";
 import { PropertyCell } from "@/components/database/property-cell";
 import { useDbActions } from "@/components/database/use-db-actions";
 import { DocEditor, type DocEditorHandle } from "@/components/editor/editor";
+import { OPEN_COMMENTS_EVENT } from "@/components/editor/shortcuts";
 import { EmojiPicker } from "@/components/emoji-picker";
 import { useShell } from "@/components/shell/app-shell";
 import { MoveDialog } from "@/components/shell/move-dialog";
@@ -130,6 +131,12 @@ export function PageView({ id }: { id: string }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(params.get("comments") === "1");
+  // Ctrl+Alt+M / Ctrl+Shift+M in the editor opens the comments panel.
+  useEffect(() => {
+    const open = () => setCommentsOpen(true);
+    window.addEventListener(OPEN_COMMENTS_EVENT, open);
+    return () => window.removeEventListener(OPEN_COMMENTS_EVENT, open);
+  }, []);
   const [moveOpen, setMoveOpen] = useState(false);
   const rowDb = useDatabase(page.data?.page.kind === "row" ? page.data.page.databaseId : null);
   const backlinks = useQuery({ queryKey: ["backlinks", id], queryFn: () => api.get<{ id: string; title: string; icon: string | null }[]>(`/pages/${id}/backlinks`), enabled: page.isSuccess });

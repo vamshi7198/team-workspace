@@ -2,7 +2,7 @@
 
 import { Clock, Database, FileText, MessageSquare } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useWorkspace } from "@/components/workspace-context";
@@ -39,27 +39,21 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
   const { workspace } = useWorkspace();
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [results, setResults] = useState<Result[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [recent, setRecent] = useState<string[]>([]);
-
-  useEffect(() => {
-    if (open) setRecent(loadRecent());
-  }, [open]);
+  const [results, setResults] = useState<{ term: string; items: Result[] }>({ term: "", items: [] });
+  // Read when the dialog opens. It is closed during server rendering, so this never runs there.
+  const recent = useMemo(() => (open ? loadRecent() : []), [open]);
+  // Keep showing the previous results while the next query runs.
+  const shown = q.trim() ? results.items : [];
+  const loading = Boolean(q.trim()) && results.term !== q.trim();
 
   useEffect(() => {
     const term = q.trim();
-    if (!term) {
-      setResults([]);
-      return;
-    }
-    setLoading(true);
+    if (!term) return;
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       api.get<Result[]>(`/workspaces/${workspace.id}/search?q=${encodeURIComponent(term)}`)
-        .then((r) => !ctrl.signal.aborted && setResults(r))
-        .catch(() => !ctrl.signal.aborted && setResults([]))
-        .finally(() => !ctrl.signal.aborted && setLoading(false));
+        .then((items) => !ctrl.signal.aborted && setResults({ term, items }))
+        .catch(() => !ctrl.signal.aborted && setResults({ term, items: [] }));
     }, 180);
     return () => {
       ctrl.abort();
@@ -91,9 +85,9 @@ export function SearchDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                 ))}
               </CommandGroup>
             )}
-            {results.length > 0 && (
+            {shown.length > 0 && (
               <CommandGroup heading={loading ? "Searching…" : "Results"}>
-                {results.map((r) => (
+                {shown.map((r) => (
                   <CommandItem key={`${r.type}-${r.id}`} value={`${r.type}-${r.id}`} onSelect={() => go(r)} className="items-start py-2">
                     <span className="mt-0.5 flex w-5 flex-none justify-center">
                       {r.type === "comment" ? <MessageSquare className="size-4" /> : r.icon ?? (r.kind === "database" ? <Database className="size-4" /> : <FileText className="size-4" />)}

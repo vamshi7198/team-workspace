@@ -713,7 +713,7 @@ export async function moveRow(userId: string, rowId: string, input: { afterId?: 
       const [r] = await tx.select({ sortKey: pages.sortKey }).from(pages).where(and(eq(pages.id, id), eq(pages.databaseId, page.databaseId!)));
       return r?.sortKey ?? null;
     };
-    let lo = await keyOf(input.afterId);
+    const lo = await keyOf(input.afterId);
     let hi = await keyOf(input.beforeId);
     if (lo !== null && hi !== null && lo >= hi) hi = null;
     if (lo !== null || hi !== null) await tx.update(pages).set({ sortKey: generateKeyBetween(lo, hi) }).where(eq(pages.id, rowId));

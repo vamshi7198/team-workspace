@@ -1,8 +1,10 @@
 import { sql, type SQL } from "drizzle-orm";
+import { INVITE_ROLES, ROLES } from "../../lib/roles";
 import {
   bigserial,
   bigint,
   boolean,
+  type AnyPgColumn,
   check,
   customType,
   index,
@@ -99,6 +101,8 @@ export const workspaces = pgTable("workspaces", {
   createdAt: now(),
 });
 
+export { ROLES, INVITE_ROLES, type Role } from "../../lib/roles";
+
 export const workspaceMembers = pgTable(
   "workspace_members",
   {
@@ -108,13 +112,14 @@ export const workspaceMembers = pgTable(
     userId: uuid()
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    role: text({ enum: ["admin", "member"] }).notNull().default("member"),
+    role: text({ enum: ROLES }).notNull().default("member"),
     createdAt: now(),
   },
   (t) => [
     primaryKey({ columns: [t.workspaceId, t.userId] }),
     index().on(t.userId),
-    check("workspace_members_role_check", sql`${t.role} in ('admin','member')`),
+    check("workspace_members_role_check", sql`${t.role} in ('owner','admin','member','viewer')`),
+    uniqueIndex("workspace_members_one_owner").on(t.workspaceId).where(sql`${t.role} = 'owner'`),
   ],
 );
 
@@ -126,7 +131,7 @@ export const invitations = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     email: text().notNull(),
-    role: text({ enum: ["admin", "member"] }).notNull().default("member"),
+    role: text({ enum: INVITE_ROLES }).notNull().default("member"),
     tokenHash: text().notNull().unique(),
     invitedBy: uuid().references(() => user.id, { onDelete: "set null" }),
     expiresAt: timestamp({ withTimezone: true }).notNull(),
@@ -134,7 +139,7 @@ export const invitations = pgTable(
     revokedAt: timestamp({ withTimezone: true }),
     createdAt: now(),
   },
-  (t) => [index().on(t.workspaceId)],
+  (t) => [index().on(t.workspaceId), check("invitations_role_check", sql`${t.role} in ('admin','member','viewer')`)],
 );
 
 export const teamspaces = pgTable(
@@ -182,7 +187,7 @@ export const pages = pgTable(
     workspaceId: uuid()
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    parentId: uuid().references((): any => pages.id, { onDelete: "cascade" }),
+    parentId: uuid().references((): AnyPgColumn => pages.id, { onDelete: "cascade" }),
     kind: text({ enum: PAGE_KINDS }).notNull().default("page"),
     // Copied to every descendant so teamspace membership can be checked without a tree walk.
     teamspaceId: uuid().references(() => teamspaces.id, { onDelete: "set null" }),

@@ -16,7 +16,7 @@ import {
 } from "../db/schema";
 import { badRequest, forbidden, notFound } from "../errors";
 import { audit, recordActivity } from "./audit";
-import { Access, ACCESS_NAMES, requireMember, requirePage } from "./permissions";
+import { Access, ACCESS_NAMES, requireContributor, requireMember, requirePage } from "./permissions";
 
 export type Section = { type: "private" } | { type: "workspace" } | { type: "teamspace"; teamspaceId: string };
 
@@ -103,7 +103,7 @@ export type CreatePageInput = {
 
 export async function createPage(userId: string, input: CreatePageInput, tx?: DbOrTx) {
   const run = async (t: DbOrTx) => {
-    await requireMember(userId, input.workspaceId, t);
+    await requireContributor(userId, input.workspaceId, t);
     let parent: typeof pages.$inferSelect | null = null;
     let placement: { generalAccess: GeneralAccess; teamspaceId: string | null };
     if (input.parentId) {

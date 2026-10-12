@@ -41,7 +41,7 @@ async function main() {
   const password = process.env.ADMIN_PASSWORD || (await promptHidden("Admin password (min 10 characters): "));
   const { createWorkspaceWithAdmin } = await import("../src/server/services/workspaces");
   const res = await createWorkspaceWithAdmin({ workspaceName: values.workspace, adminEmail: values.email, adminName: values.name, password });
-  console.log(`Created workspace "${res.workspace.name}" with admin ${res.user.email}.`);
+  console.log(`Created workspace "${res.workspace.name}" owned by ${res.user.email}.`);
   process.exit(0);
 }
 

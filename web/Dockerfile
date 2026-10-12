@@ -11,7 +11,8 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# public/ holds no files yet and git doesn't keep empty folders; the runner stage copies it.
+RUN mkdir -p public && npm run build
 # Self-contained scripts for migrations and first-run setup (run inside the container).
 RUN npx esbuild scripts/migrate.ts --bundle --platform=node --target=node24 --outfile=dist/migrate.cjs \
  && npx esbuild scripts/setup.ts --bundle --platform=node --target=node24 --outfile=dist/setup.cjs \

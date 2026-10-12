@@ -18,7 +18,8 @@ import { BlockHandle } from "./block-handle";
 import { codeBlockExtension, nodeViewOverrides } from "./node-views";
 import { SlashCommand, type EditorActions } from "./slash-command";
 import { suggestionRenderer, type MenuItem } from "./suggestion-popup";
-import { FormattingToolbar } from "./toolbar";
+import { NotionShortcuts } from "./shortcuts";
+import { FormattingToolbar, promptLink } from "./toolbar";
 import { useAutosave } from "./use-autosave";
 import { ConflictDialog, SaveIndicator } from "./save-ui";
 
@@ -152,6 +153,9 @@ export const DocEditor = forwardRef<DocEditorHandle, {
           showOnlyCurrent: true,
         }),
         SlashCommand.configure({ getActions: () => actionsRef.current }),
+        NotionShortcuts.configure({
+          getActions: () => ({ setLink: (e) => void promptLink(e, prompt), addSubpage: (e) => void actionsRef.current.addSubpage(e) }),
+        }),
       ],
     }),
     editorProps: {

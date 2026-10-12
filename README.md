@@ -12,7 +12,8 @@ paid APIs are needed to run it.
 - **Meetings**: action items become tasks with one click, without duplicates, and decisions are collected.
 - **Knowledge**: nested pages, favorites, recents, backlinks, templates, trash, archive, version history.
 - **Search** across pages, rows and comments, filtered by permissions.
-- **Access**: private pages, workspace pages, teamspaces and per-person sharing, enforced on the server.
+- **Access**: Owner / Admin / Member / Viewer roles, private pages, workspace pages, teamspaces
+  and per-person sharing, all enforced on the server.
 - **Ownership**: Markdown/JSON/CSV export, full workspace export, Notion import, encrypted backups.
 
 ## Run it

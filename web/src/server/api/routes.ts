@@ -2,7 +2,7 @@ import "server-only";
 import { desc, eq, sql } from "drizzle-orm";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { PROPERTY_TYPES, VIEW_TYPES, GENERAL_ACCESS } from "../db/schema";
+import { PROPERTY_TYPES, VIEW_TYPES, GENERAL_ACCESS, INVITE_ROLES, ROLES } from "../db/schema";
 import { activity, user } from "../db/schema";
 import { db } from "../db";
 import { getAuth, resetLinkCapture } from "../auth";
@@ -19,7 +19,7 @@ import * as home from "../services/home";
 import * as imp from "../services/import";
 import * as meetings from "../services/meetings";
 import * as pages from "../services/pages";
-import { Access, requireAdmin, requireMember, requirePage } from "../services/permissions";
+import { Access, requireCanManage, requireMember, requirePage } from "../services/permissions";
 import * as presence from "../services/presence";
 import * as searchSvc from "../services/search";
 import * as ws from "../services/workspaces";
@@ -129,15 +129,14 @@ export const router = new Router()
   // ---- members, invitations, teamspaces, admin ---------------------------------
   .get("/workspaces/:ws/members", async (_req, ctx, p) => ws.listMembers(ctx.userId, p.ws))
   .patch("/workspaces/:ws/members/:user", async (req, ctx, p) => {
-    const b = await body(req, z.object({ role: z.enum(["admin", "member"]) }));
+    const b = await body(req, z.object({ role: z.enum(ROLES) }));
     await ws.changeRole(ctx.userId, p.ws, p.user, b.role, ctx.ip);
   })
   .delete("/workspaces/:ws/members/:user", async (_req, ctx, p) => ws.removeMember(ctx.userId, p.ws, p.user, ctx.ip))
   .delete("/workspaces/:ws/members/:user/sessions", async (_req, ctx, p) => ws.revokeMemberSessions(ctx.userId, p.ws, p.user, ctx.ip))
   .post("/workspaces/:ws/members/:user/reset-link", async (_req, ctx, p) => {
     // For teams without email: the admin generates a one-time reset link to hand over.
-    await requireAdmin(ctx.userId, p.ws);
-    await requireMember(p.user, p.ws);
+    await requireCanManage(ctx.userId, p.ws, p.user);
     const [target] = await db.select({ email: user.email }).from(user).where(eq(user.id, p.user));
     const capture: { url?: string } = {};
     await resetLinkCapture.run(capture, () =>
@@ -149,7 +148,7 @@ export const router = new Router()
   })
   .get("/workspaces/:ws/invitations", async (_req, ctx, p) => ws.listInvitations(ctx.userId, p.ws))
   .post("/workspaces/:ws/invitations", async (req, ctx, p) => {
-    const b = await body(req, z.object({ email: z.string().email().max(200), role: z.enum(["admin", "member"]).default("member") }));
+    const b = await body(req, z.object({ email: z.string().email().max(200), role: z.enum(INVITE_ROLES).default("member") }));
     return ws.createInvitation(ctx.userId, p.ws, b, ctx.ip);
   })
   .delete("/workspaces/:ws/invitations/:id", async (_req, ctx, p) => ws.revokeInvitation(ctx.userId, p.ws, p.id, ctx.ip))

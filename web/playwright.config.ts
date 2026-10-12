@@ -29,7 +29,7 @@ export default defineConfig({
     { name: "mobile", use: { ...devices["Pixel 7"] }, testMatch: /mobile/ },
   ],
   webServer: {
-    command: `npx next start -p ${PORT}`,
+    command: `npx tsx scripts/ensure-db.ts && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 120_000,

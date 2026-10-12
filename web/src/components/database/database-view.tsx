@@ -54,9 +54,11 @@ function DatabaseInner({ db, embedded, membersList }: { db: NonNullable<ReturnTy
   useEffect(() => {
     try {
       const saved = localStorage.getItem(storageKey);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- read browser storage after mount so server and client render the same HTML
       if (saved && db.views.some((v) => v.id === saved)) setViewId(saved);
     } catch {}
   }, [storageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- the editable copy resets when another view is selected or the saved config changes
   useEffect(() => setConfig(view?.config ?? {}), [view?.id, view?.config]);
 
   const selectView = (id: string) => {

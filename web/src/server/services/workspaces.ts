@@ -3,17 +3,18 @@ import { hashPassword } from "better-auth/crypto";
 import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { account, invitations, session, teamspaceMembers, teamspaces, user, workspaceMembers, workspaces } from "../db/schema";
+import type { InviteRole, Role } from "@/lib/roles";
 import { env } from "../env";
 import { badRequest, conflict, forbidden, notFound } from "../errors";
 import { sendMail } from "../mail";
 import { audit } from "./audit";
-import { requireAdmin, requireMember } from "./permissions";
+import { requireAdmin, requireCanManage, requireMember } from "./permissions";
 import { bootstrapWorkspace } from "./system";
 
 const INVITE_TTL_DAYS = 7;
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
-/** First-run setup (CLI): creates the admin account and the workspace. */
+/** First-run setup (CLI): creates the workspace and its owner account. */
 export async function createWorkspaceWithAdmin(input: { workspaceName: string; adminEmail: string; adminName: string; password: string }) {
   if (input.password.length < 10) throw badRequest("Password must be at least 10 characters");
   return db.transaction(async (tx) => {
@@ -24,7 +25,7 @@ export async function createWorkspaceWithAdmin(input: { workspaceName: string; a
       await tx.insert(account).values({ userId: u.id, accountId: u.id, providerId: "credential", password: await hashPassword(input.password) });
     }
     const [ws] = await tx.insert(workspaces).values({ name: input.workspaceName }).returning();
-    await tx.insert(workspaceMembers).values({ workspaceId: ws.id, userId: u.id, role: "admin" });
+    await tx.insert(workspaceMembers).values({ workspaceId: ws.id, userId: u.id, role: "owner" });
     const dbs = await bootstrapWorkspace(tx, ws.id, u.id);
     await audit({ workspaceId: ws.id, actorId: u.id, action: "workspace.created" }, tx);
     return { workspace: ws, user: u, databases: dbs };
@@ -58,8 +59,9 @@ export async function listMembers(userId: string, workspaceId: string) {
 
 // ---- invitations -----------------------------------------------------------
 
-export async function createInvitation(userId: string, workspaceId: string, input: { email: string; role: "admin" | "member" }, ip: string | null) {
-  await requireAdmin(userId, workspaceId);
+export async function createInvitation(userId: string, workspaceId: string, input: { email: string; role: InviteRole }, ip: string | null) {
+  const actor = await requireAdmin(userId, workspaceId);
+  if (input.role === "admin" && actor !== "owner") throw forbidden("Only the workspace owner can invite admins");
   const email = input.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw badRequest("Enter a valid email address");
   const [existing] = await db
@@ -143,7 +145,7 @@ export async function acceptInvitation(token: string, input: { name?: string; pa
     await tx
       .insert(workspaceMembers)
       .values({ workspaceId: inv.workspaceId, userId: u.id, role: inv.role })
-      .onConflictDoUpdate({ target: [workspaceMembers.workspaceId, workspaceMembers.userId], set: { role: inv.role } });
+      .onConflictDoUpdate({ target: [workspaceMembers.workspaceId, workspaceMembers.userId], set: { role: inv.role }, setWhere: sql`${workspaceMembers.role} <> 'owner'` });
     await tx.update(invitations).set({ acceptedAt: new Date() }).where(eq(invitations.id, inv.id));
     await audit({ workspaceId: inv.workspaceId, actorId: u.id, action: "invitation.accepted", target: inv.email, ip }, tx);
     return { email: inv.email, workspaceId: inv.workspaceId };
@@ -152,22 +154,24 @@ export async function acceptInvitation(token: string, input: { name?: string; pa
 
 // ---- member management -----------------------------------------------------
 
-async function adminCount(workspaceId: string, tx = db) {
-  const [r] = await tx
-    .select({ n: sql<number>`count(*)::int` })
-    .from(workspaceMembers)
-    .innerJoin(user, eq(user.id, workspaceMembers.userId))
-    .where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.role, "admin"), isNull(user.disabledAt)));
-  return r.n;
-}
-
-export async function changeRole(userId: string, workspaceId: string, targetId: string, role: "admin" | "member", ip: string | null) {
-  await requireAdmin(userId, workspaceId);
-  const [m] = await db.select().from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetId)));
-  if (!m) throw notFound("Member not found");
-  if (m.role === "admin" && role === "member" && (await adminCount(workspaceId)) <= 1) throw badRequest("A workspace needs at least one admin");
-  await db.update(workspaceMembers).set({ role }).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetId)));
-  await audit({ workspaceId, actorId: userId, action: "member.role_changed", target: targetId, meta: { role }, ip });
+/**
+ * Changes a member's role. Admins can switch members and viewers; only the owner can make or
+ * unmake admins. Making someone the owner transfers ownership: the old owner becomes an admin.
+ */
+export async function changeRole(userId: string, workspaceId: string, targetId: string, role: Role, ip: string | null) {
+  const { actor, target } = await requireCanManage(userId, workspaceId, targetId);
+  if ((role === "owner" || role === "admin") && actor !== "owner") throw forbidden("Only the workspace owner can make admins");
+  const where = (id: string) => and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, id));
+  if (role === target) return;
+  await db.transaction(async (tx) => {
+    if (role === "owner") {
+      // Demote first: the one-owner unique index would reject two owners at once.
+      await tx.update(workspaceMembers).set({ role: "admin" }).where(where(userId));
+      await audit({ workspaceId, actorId: userId, action: "workspace.ownership_transferred", target: targetId, ip }, tx);
+    }
+    await tx.update(workspaceMembers).set({ role }).where(where(targetId));
+    await audit({ workspaceId, actorId: userId, action: "member.role_changed", target: targetId, meta: { from: target, role }, ip }, tx);
+  });
 }
 
 /**
@@ -176,12 +180,9 @@ export async function changeRole(userId: string, workspaceId: string, targetId: 
  * disabled. Pages they own are kept.
  */
 export async function removeMember(userId: string, workspaceId: string, targetId: string, ip: string | null) {
-  await requireAdmin(userId, workspaceId);
   if (targetId === userId) throw badRequest("You cannot remove yourself");
+  await requireCanManage(userId, workspaceId, targetId);
   return db.transaction(async (tx) => {
-    const [m] = await tx.select().from(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetId)));
-    if (!m) throw notFound("Member not found");
-    if (m.role === "admin" && (await adminCount(workspaceId, tx as unknown as typeof db)) <= 1) throw badRequest("A workspace needs at least one admin");
     await tx.delete(workspaceMembers).where(and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetId)));
     await tx.execute(sql`delete from teamspace_members where user_id = ${targetId} and teamspace_id in (select id from teamspaces where workspace_id = ${workspaceId})`);
     await tx.execute(sql`delete from page_grants where user_id = ${targetId} and page_id in (select id from pages where workspace_id = ${workspaceId})`);
@@ -194,8 +195,8 @@ export async function removeMember(userId: string, workspaceId: string, targetId
 
 /** Revokes every session of a member (e.g. lost laptop). */
 export async function revokeMemberSessions(userId: string, workspaceId: string, targetId: string, ip: string | null) {
-  await requireAdmin(userId, workspaceId);
-  await requireMember(targetId, workspaceId);
+  if (targetId !== userId) await requireCanManage(userId, workspaceId, targetId);
+  else await requireMember(userId, workspaceId);
   await db.delete(session).where(eq(session.userId, targetId));
   await audit({ workspaceId, actorId: userId, action: "member.sessions_revoked", target: targetId, ip });
 }

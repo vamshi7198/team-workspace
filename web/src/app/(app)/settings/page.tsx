@@ -14,7 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/components/workspace-context";
 import { api } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
-import { toastError, useMembers, useTeamspaces } from "@/lib/queries";
+import { toastError, useMembers, useTeamspaces, type Member } from "@/lib/queries";
+import { assignableRoles, canManage, isAdminRole, ROLE_LABELS, type InviteRole, type Role } from "@/lib/roles";
 
 function CopyBox({ label, url }: { label: string; url: string }) {
   return (
@@ -85,13 +86,17 @@ function AccountTab() {
 
 function MembersTab() {
   const { workspace, me } = useWorkspace();
-  const isAdmin = workspace.role === "admin";
+  const isAdmin = isAdminRole(workspace.role);
   const qc = useQueryClient();
   const { confirm } = useDialogs();
   const members = useMembers(workspace.id);
   const invites = useQuery({ queryKey: ["invites", workspace.id], queryFn: () => api.get<{ id: string; email: string; role: string; expiresAt: string }[]>(`/workspaces/${workspace.id}/invitations`), enabled: isAdmin });
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<"member" | "admin">("member");
+  const [role, setRole] = useState<InviteRole>("member");
+  const setMemberRole = async (m: Member, next: Role) => {
+    if (next === "owner" && !(await confirm({ title: `Make ${m.name} the owner?`, description: "Ownership moves to them and you become an admin. Only they can undo this.", confirmLabel: "Transfer ownership", destructive: true }))) return;
+    try { await api.patch(`/workspaces/${workspace.id}/members/${m.id}`, { role: next }); toast.success(`${m.name} is now ${ROLE_LABELS[next].toLowerCase()}`); refresh(); if (next === "owner") window.location.reload(); } catch (e) { toastError(e); }
+  };
   const [link, setLink] = useState<{ label: string; url: string } | null>(null);
   const refresh = () => { qc.invalidateQueries({ queryKey: ["members"] }); qc.invalidateQueries({ queryKey: ["invites"] }); };
 
@@ -113,7 +118,9 @@ function MembersTab() {
           <p className="font-medium">Invite someone</p>
           <div className="flex flex-wrap gap-2">
             <Input type="email" required placeholder="name@uncanned.in" value={email} onChange={(e) => setEmail(e.target.value)} className="min-w-56 flex-1" aria-label="Email to invite" />
-            <select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value as "member" | "admin")} className="h-9 rounded-md border bg-background px-2 text-sm"><option value="member">Member</option><option value="admin">Admin</option></select>
+            <select aria-label="Role" value={role} onChange={(e) => setRole(e.target.value as InviteRole)} className="h-9 rounded-md border bg-background px-2 text-sm">
+              <option value="member">Member</option><option value="viewer">Viewer (read-only)</option>{workspace.role === "owner" && <option value="admin">Admin</option>}
+            </select>
             <Button type="submit">Send invite</Button>
           </div>
         </form>
@@ -127,14 +134,15 @@ function MembersTab() {
             <li key={m.id} className="flex items-center gap-3 px-3 py-2">
               <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold">{m.name.slice(0, 1).toUpperCase()}</span>
               <span className="min-w-0 flex-1"><span className="block truncate font-medium">{m.name}{m.id === me.id && " (you)"}</span><span className="block truncate text-xs text-muted-foreground">{m.email}</span></span>
-              <span className="text-xs capitalize text-muted-foreground">{m.role}</span>
-              {isAdmin && m.id !== me.id && (
+              <span className="text-xs text-muted-foreground">{ROLE_LABELS[m.role]}</span>
+              {m.id !== me.id && canManage(workspace.role, m.role) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild><Button size="icon" variant="ghost" className="size-7" aria-label={`Manage ${m.name}`}><MoreHorizontal className="size-4" /></Button></DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onSelect={async () => { try { await api.patch(`/workspaces/${workspace.id}/members/${m.id}`, { role: m.role === "admin" ? "member" : "admin" }); refresh(); } catch (e) { toastError(e); } }}>
-                      {m.role === "admin" ? "Make member" : "Make admin"}
-                    </DropdownMenuItem>
+                    {assignableRoles(workspace.role).filter((r) => r !== m.role).map((r) => (
+                      <DropdownMenuItem key={r} onSelect={() => setMemberRole(m, r)}>{r === "owner" ? "Transfer ownership…" : `Make ${ROLE_LABELS[r].toLowerCase()}`}</DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={async () => { try { const r = await api.post<{ url: string }>(`/workspaces/${workspace.id}/members/${m.id}/reset-link`); setLink({ label: `Password reset link for ${m.name} (valid 1 hour)`, url: r.url }); } catch (e) { toastError(e); } }}>
                       Create password reset link
                     </DropdownMenuItem>
@@ -173,7 +181,7 @@ function MembersTab() {
 
 function TeamspacesTab() {
   const { workspace } = useWorkspace();
-  const isAdmin = workspace.role === "admin";
+  const isAdmin = isAdminRole(workspace.role);
   const qc = useQueryClient();
   const teamspaces = useTeamspaces(workspace.id);
   const members = useMembers(workspace.id);
@@ -269,7 +277,7 @@ function AdminTab() {
 
 export default function SettingsPage() {
   const { workspace } = useWorkspace();
-  const isAdmin = workspace.role === "admin";
+  const isAdmin = isAdminRole(workspace.role);
   return (
     <SimplePage title="Settings" description={`${workspace.name} · you are ${isAdmin ? "an admin" : "a member"}`}>
       <Tabs defaultValue="account">

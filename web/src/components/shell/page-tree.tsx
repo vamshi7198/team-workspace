@@ -69,11 +69,13 @@ export function PageTreeProvider({ nodes, favorites, children: render }: { nodes
   const [activeId, setActiveId] = useState<string | null>(null);
   const pathname = usePathname();
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- read browser storage after mount so server and client render the same HTML
   useEffect(() => setExpanded(loadExpanded()), []);
   // Expand ancestors of the open page.
   useEffect(() => {
     const id = pathname.match(/^\/p\/([0-9a-f-]{36})/)?.[1];
     if (!id) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reveal the open page in the tree after navigating
     setExpanded((prev) => {
       const next = new Set(prev);
       let cur = byId.get(id)?.parentId;

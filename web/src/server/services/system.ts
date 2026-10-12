@@ -1,10 +1,12 @@
 // Built-in structure for a new workspace: the Projects, Tasks and Meetings databases
-// (schemas and views only, no sample rows) and the starter templates.
-import { docFromOutline, type Doc } from "@/lib/doc";
+// (schemas and views only, no sample rows), the starter templates, and a starter company wiki
+// (real, editable pages with headings to fill in; delete the "Company wiki" page to remove it).
+import { docFromOutline, ensureBlockIds, type Doc } from "@/lib/doc";
 import type { SelectOption } from "@/lib/db-engine/types";
 import type { DbOrTx } from "../db";
 import { dbProperties } from "../db/schema";
 import { createDatabase, insertRelationProperty } from "./databases";
+import { writeContentUnchecked } from "./content";
 import { createPage } from "./pages";
 import { eq } from "drizzle-orm";
 
@@ -15,7 +17,7 @@ const priority = () => [opt("Low", "gray"), opt("Medium", "yellow"), opt("High",
 export const MEETING_TEMPLATE: Doc = docFromOutline([
   { h: 2, p: "Agenda" },
   { bullets: [""] },
-  { h: 2, p: "Notes" },
+  { h: 2, p: "Discussion" },
   { p: "" },
   { h: 2, p: "Decisions" },
   { bullets: [""] },
@@ -134,10 +136,13 @@ export async function bootstrapWorkspace(tx: DbOrTx, workspaceId: string, adminI
       { name: "All projects", type: "table" },
       { name: "Board", type: "board", config: { groupBy: "key:status" } },
       { name: "Active", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
+      { name: "Upcoming deadlines", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:due", op: "within_next_days", value: 30 }, { propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
       { name: "Calendar", type: "calendar", config: { dateProperty: "key:due" } },
     ],
   }, tx);
 
+  const taskPriority = priority();
+  const urgentIds = taskPriority.filter((o) => o.name === "High" || o.name === "Urgent").map((o) => o.id);
   const tasks = await createDatabase(adminId, {
     workspaceId,
     section: workspace,
@@ -149,8 +154,10 @@ export async function bootstrapWorkspace(tx: DbOrTx, workspaceId: string, adminI
     properties: [
       { key: "status", name: "Status", type: "status", config: { options: [opt("Not started", "gray", "todo"), opt("In progress", "blue", "in_progress"), opt("Blocked", "red", "in_progress"), opt("Done", "green", "done")] } },
       { key: "assignee", name: "Assignee", type: "person" },
-      { key: "priority", name: "Priority", type: "select", config: { options: priority() } },
+      { key: "priority", name: "Priority", type: "select", config: { options: taskPriority } },
       { key: "due", name: "Due date", type: "date" },
+      { key: "notes", name: "Notes", type: "text" },
+      { key: "created", name: "Created", type: "created_time" },
       { key: "created_by", name: "Created by", type: "created_by" },
       { key: "updated", name: "Last updated", type: "edited_time" },
     ],
@@ -158,6 +165,7 @@ export async function bootstrapWorkspace(tx: DbOrTx, workspaceId: string, adminI
       { name: "All tasks", type: "table", config: { sorts: [{ propertyId: "key:due", direction: "asc" }] } },
       { name: "Board", type: "board", config: { groupBy: "key:status" } },
       { name: "My tasks", type: "list", config: { filter: { mode: "and", conditions: [{ propertyId: "key:assignee", op: "contains", value: "me" }, { propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
+      { name: "High priority", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:priority", op: "is_any_of", value: urgentIds }, { propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
       { name: "Overdue", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:due", op: "before", value: "today" }, { propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
       { name: "Due soon", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:due", op: "within_next_days", value: 7 }, { propertyId: "key:status", op: "is_not_done" }] }, sorts: [{ propertyId: "key:due", direction: "asc" }] } },
       { name: "Completed", type: "table", config: { filter: { mode: "and", conditions: [{ propertyId: "key:status", op: "is_done" }] }, sorts: [{ propertyId: "key:updated", direction: "desc" }] } },
@@ -176,6 +184,7 @@ export async function bootstrapWorkspace(tx: DbOrTx, workspaceId: string, adminI
     properties: [
       { key: "date", name: "Date", type: "date", config: { includeTime: true } },
       { key: "participants", name: "Participants", type: "person" },
+      { key: "follow_up", name: "Follow-up date", type: "date" },
       { key: "type", name: "Type", type: "select", config: { options: [opt("Standup", "blue"), opt("Planning", "purple"), opt("Review", "green"), opt("1:1", "orange"), opt("Client", "pink"), opt("Other", "gray")] } },
       { key: "created_by", name: "Created by", type: "created_by" },
     ],
@@ -203,5 +212,56 @@ export async function bootstrapWorkspace(tx: DbOrTx, workspaceId: string, adminI
     config: { relationPropertyId: taskProject.reverse!.id, targetPropertyId: taskStatus.id, rollup: "percent_where", whereValue: "__done__", numberFormat: "percent" },
   });
 
+  await createStarterWiki(tx, workspaceId, adminId, { projects: projects.page.id, meetings: meetings.page.id });
+
   return { projects: projects.database.id, tasks: tasks.database.id, meetings: meetings.database.id };
+}
+
+const WIKI_SECTIONS: { title: string; icon: string; doc: (db: { projects: string; meetings: string }) => Doc }[] = [
+  {
+    title: "Company information", icon: "🏢",
+    doc: () => docFromOutline([{ h: 2, p: "About us" }, { p: "" }, { h: 2, p: "Mission and values" }, { bullets: [""] }, { h: 2, p: "Key contacts" }, { bullets: [""] }, { h: 2, p: "Tools we use" }, { bullets: [""] }]),
+  },
+  {
+    title: "Team documentation", icon: "👥",
+    doc: () => docFromOutline([{ h: 2, p: "Who's who" }, { bullets: [""] }, { h: 2, p: "Roles and responsibilities" }, { p: "" }, { h: 2, p: "How we communicate" }, { bullets: [""] }]),
+  },
+  {
+    title: "Standard operating procedures", icon: "📋",
+    doc: () => docFromOutline([{ callout: "Add one sub-page per procedure. Start it from the \"Standard operating procedure\" template so every SOP has the same shape." }, { h: 2, p: "Procedures" }, { bullets: [""] }]),
+  },
+  {
+    title: "Engineering", icon: "🛠️",
+    doc: () => docFromOutline([{ h: 2, p: "Architecture" }, { p: "" }, { h: 2, p: "Environments and access" }, { bullets: [""] }, { h: 2, p: "Deployment" }, { p: "" }, { h: 2, p: "Runbooks" }, { bullets: [""] }]),
+  },
+  {
+    title: "Marketing", icon: "📣",
+    doc: () => docFromOutline([{ h: 2, p: "Brand guidelines" }, { p: "" }, { h: 2, p: "Channels" }, { bullets: [""] }, { h: 2, p: "Campaign calendar" }, { p: "" }]),
+  },
+  {
+    title: "Project documentation", icon: "📁",
+    doc: (db) => embed("Projects live in the Projects database. Open a project to write its brief, or start one from the \"Project brief\" template.", db.projects, "Projects"),
+  },
+  {
+    title: "Meeting notes", icon: "🗓️",
+    doc: (db) => embed("Meeting notes live in the Meetings database. New meetings start with agenda, discussion, decisions and action items.", db.meetings, "Meetings"),
+  },
+];
+
+function embed(intro: string, pageId: string, title: string): Doc {
+  const doc = docFromOutline([{ p: intro }]);
+  doc.content!.push({ type: "dbEmbed", attrs: { pageId, viewId: null, title } });
+  return ensureBlockIds(doc);
+}
+
+async function createStarterWiki(tx: DbOrTx, workspaceId: string, adminId: string, db: { projects: string; meetings: string }) {
+  const root = await createPage(adminId, { workspaceId, section: { type: "workspace" }, title: "Company wiki", icon: "📚" }, tx);
+  const children = [];
+  for (const s of WIKI_SECTIONS) {
+    const page = await createPage(adminId, { workspaceId, parentId: root.id, title: s.title, icon: s.icon, doc: s.doc(db) }, tx);
+    children.push({ type: "pageRef", attrs: { pageId: page.id, title: s.title } });
+  }
+  const doc = docFromOutline([{ callout: "A starter structure for your company knowledge. Rename, rewrite or delete anything; deleting this page moves the whole starter wiki to the trash." }]);
+  doc.content!.push(...children);
+  await writeContentUnchecked(tx, root.id, ensureBlockIds(doc), adminId);
 }

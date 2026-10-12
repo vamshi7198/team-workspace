@@ -2,10 +2,12 @@
 // Refuses to run against anything that isn't an *_e2e database.
 import { execSync } from "node:child_process";
 import postgres from "postgres";
+import { ensureDatabase } from "./ensure-db";
 
 async function main() {
   const url = process.env.DATABASE_URL ?? "";
   if (!/_e2e\b/.test(url)) throw new Error(`Refusing to reset a non-e2e database: ${url}`);
+  await ensureDatabase(url);
   const sql = postgres(url, { max: 1, onnotice: () => {} });
   await sql`drop schema if exists public cascade`;
   await sql`drop schema if exists drizzle cascade`;

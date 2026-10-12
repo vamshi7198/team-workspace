@@ -40,6 +40,26 @@ describe("workspace bootstrap", () => {
     const [{ t }] = await db.execute<{ t: number }>(sql`select count(*)::int as t from pages where workspace_id = ${ws.workspaceId} and is_template`);
     expect(t).toBe(8);
   });
+
+  it("creates a starter company wiki of real pages, linked from its index", async () => {
+    const ws = await seedWorkspace(1);
+    const tree = await listTree(ws.adminId, ws.workspaceId);
+    const wiki = tree.find((n) => n.title === "Company wiki")!;
+    const sections = tree.filter((n) => n.parentId === wiki.id);
+    expect(sections.map((n) => n.title)).toEqual(["Company information", "Team documentation", "Standard operating procedures", "Engineering", "Marketing", "Project documentation", "Meeting notes"]);
+    const index = await getContent(ws.adminId, wiki.id);
+    const refs = ((index.doc as Doc).content ?? []).filter((b) => b.type === "pageRef").map((b) => b.attrs?.pageId);
+    expect(refs).toEqual(sections.map((n) => n.id));
+    // Editable by members like any workspace page, and found by search.
+    expect(await pageAccess(ws.members[0].id, sections[0].id)).toBe(Access.edit);
+    expect((await search(ws.members[0].id, ws.workspaceId, "mission values")).map((r) => r.id)).toContain(sections[0].id);
+    // The meeting-notes page embeds the real Meetings database.
+    const embed = ((await getContent(ws.adminId, sections[6].id)).doc as Doc).content!.find((b) => b.type === "dbEmbed")!;
+    const [{ page_id }] = await db.execute<{ page_id: string }>(sql`select page_id from databases where id = ${ws.databases.meetings}`);
+    expect(embed.attrs?.pageId).toBe(page_id);
+    const views = await db.execute<{ name: string }>(sql`select name from db_views where database_id in (${ws.databases.projects}, ${ws.databases.tasks})`);
+    expect(views.map((v) => v.name)).toEqual(expect.arrayContaining(["Upcoming deadlines", "High priority"]));
+  });
 });
 
 describe("permissions", () => {

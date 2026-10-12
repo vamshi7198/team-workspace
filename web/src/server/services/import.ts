@@ -9,7 +9,7 @@ import { writeContentUnchecked } from "./content";
 import { createDatabase, createRow, type PropertySpec } from "./databases";
 import { uploadFile } from "./files";
 import { createPage, type Section } from "./pages";
-import { requireMember } from "./permissions";
+import { requireContributor } from "./permissions";
 
 const NOTION_ID = /\s+[0-9a-f]{32}$/i;
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif)$/i;
@@ -125,7 +125,7 @@ export async function importArchive(
   input: { workspaceId: string; files: Map<string, Uint8Array>; rootTitle: string; parentId?: string | null; section?: Section },
   ip: string | null,
 ): Promise<ImportSummary> {
-  await requireMember(userId, input.workspaceId);
+  await requireContributor(userId, input.workspaceId);
   const entries = input.files;
   const decoder = new TextDecoder();
   const mdPaths = [...entries.keys()].filter((p) => p.toLowerCase().endsWith(".md"));

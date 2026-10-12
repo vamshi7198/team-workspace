@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { switchWorkspace, useWorkspace } from "@/components/workspace-context";
+import { canContribute } from "@/lib/roles";
 import { authClient } from "@/lib/auth-client";
 import { useCreatePage, useFavorites, useTeamspaces, useTree } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -54,6 +55,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
   const favorites = useFavorites(workspace.id);
   const teamspaces = useTeamspaces(workspace.id);
   const createPage = useCreatePage();
+  const canCreate = canContribute(workspace.role);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const favIds = useMemo(() => new Set((favorites.data ?? []).map((f) => f.id)), [favorites.data]);
 
@@ -112,7 +114,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
         <NavItem href="/" icon={Home} label="Home" />
         <NavItem href="/meetings" icon={CalendarDays} label="Meetings" />
         <NavItem href="/settings" icon={Settings} label="Settings & members" />
-        <NavItem icon={Plus} label="New page" onClick={() => newPage({ type: "private" })} />
+        {canCreate && <NavItem icon={Plus} label="New page" onClick={() => newPage({ type: "private" })} />}
       </div>
 
       <div className="mt-1 flex-1 overflow-y-auto px-2 pb-4">
@@ -146,7 +148,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
 
                 {(teamspaces.data ?? []).filter((t) => t.is_member).map((t) => (
                   <div key={t.id}>
-                    <SectionHeader label={`${t.icon ?? "👥"} ${t.name}`} open={!closed[t.id]} onToggle={() => toggle(t.id)} onAdd={() => newPage({ type: "teamspace", teamspaceId: t.id })} />
+                    <SectionHeader label={`${t.icon ?? "👥"} ${t.name}`} open={!closed[t.id]} onToggle={() => toggle(t.id)} onAdd={canCreate ? () => newPage({ type: "teamspace", teamspaceId: t.id }) : undefined} />
                     {!closed[t.id] && (
                       <SectionDropZone id={`section:teamspace:${t.id}`}>
                         {(sections.teamspaces.get(t.id) ?? []).length ? <TreeList nodes={sections.teamspaces.get(t.id)!} /> : <p className="px-2 py-1 text-xs text-muted-foreground/70">No pages yet</p>}
@@ -155,7 +157,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
                   </div>
                 ))}
 
-                <SectionHeader label="Workspace" open={!closed.ws} onToggle={() => toggle("ws")} onAdd={() => newPage({ type: "workspace" })} />
+                <SectionHeader label="Workspace" open={!closed.ws} onToggle={() => toggle("ws")} onAdd={canCreate ? () => newPage({ type: "workspace" }) : undefined} />
                 {!closed.ws && (
                   <SectionDropZone id="section:workspace">
                     {sections.workspace.length ? <TreeList nodes={sections.workspace} /> : <p className="px-2 py-1 text-xs text-muted-foreground/70">Pages everyone can see</p>}
@@ -169,7 +171,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
                   </>
                 )}
 
-                <SectionHeader label="Private" open={!closed.priv} onToggle={() => toggle("priv")} onAdd={() => newPage({ type: "private" })} />
+                <SectionHeader label="Private" open={!closed.priv} onToggle={() => toggle("priv")} onAdd={canCreate ? () => newPage({ type: "private" }) : undefined} />
                 {!closed.priv && (
                   <SectionDropZone id="section:private">
                     {sections.private.length ? <TreeList nodes={sections.private} /> : <p className="px-2 py-1 text-xs text-muted-foreground/70">Pages only you can see</p>}
@@ -183,7 +185,7 @@ export function Sidebar({ onSearch, onCollapse }: { onSearch: () => void; onColl
 
       <div className="space-y-0.5 border-t p-2">
         <NavItem href="/templates" icon={FileStack} label="Templates" />
-        <NavItem href="/import" icon={Upload} label="Import" />
+        {canCreate && <NavItem href="/import" icon={Upload} label="Import" />}
         <NavItem href="/trash" icon={Trash2} label="Trash" />
       </div>
     </nav>

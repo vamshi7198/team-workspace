@@ -1,5 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, type DbOrTx } from "../db";
+import { canManage, isAdminRole } from "@/lib/roles";
 import { pages, user, workspaceMembers } from "../db/schema";
 import { forbidden, notFound } from "../errors";
 
@@ -53,10 +54,26 @@ export async function requireMember(userId: string, workspaceId: string, tx: DbO
   return role;
 }
 
+/** Owners and admins. */
 export async function requireAdmin(userId: string, workspaceId: string, tx: DbOrTx = db) {
   const role = await requireMember(userId, workspaceId, tx);
-  if (role !== "admin") throw forbidden("Only workspace admins can do that");
+  if (!isAdminRole(role)) throw forbidden("Only workspace admins can do that");
   return role;
+}
+
+/** Anyone who may create content: everyone except viewers. */
+export async function requireContributor(userId: string, workspaceId: string, tx: DbOrTx = db) {
+  const role = await requireMember(userId, workspaceId, tx);
+  if (role === "viewer") throw forbidden("Viewers can read but not create or change content");
+  return role;
+}
+
+export async function requireCanManage(userId: string, workspaceId: string, targetId: string, tx: DbOrTx = db) {
+  const actor = await requireAdmin(userId, workspaceId, tx);
+  const target = await membership(targetId, workspaceId, tx);
+  if (!target) throw notFound("Member not found");
+  if (!canManage(actor, target)) throw forbidden(target === "owner" ? "The workspace owner can't be changed by others" : "Only the workspace owner can manage admins");
+  return { actor, target };
 }
 
 /** SQL predicate: the current user can at least view the page referenced by `pageIdCol`. */

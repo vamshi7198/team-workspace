@@ -43,12 +43,29 @@ To restore onto a **new machine**: install Docker, copy the repo, put the same `
 (the same `BACKUP_PASSPHRASE`) and the backup files into `./backups`, run
 `docker compose up -d postgres backup`, then run the restore commands above, then `docker compose up -d`.
 
-## Restore drill (NOT YET RUN)
-**Status 2026-10-12: the backup and restore scripts are written but have not been tested.**
-Do not rely on backups until this drill passes. To run it, restore a backup from one deployment
-into a completely fresh one (a separate compose project with new volumes, e.g.
-`docker compose -p drill ...`). Then check that page content, database rows, uploaded files
-and sign-in all work. Repeat the drill:
+## Restore drill
+**Last passed: 2026-10-12, on a Windows 11 laptop with Docker Desktop.** That covers the local
+backups only. The off-site (rclone) copy has not been drilled yet. Repeat the drill on the real
+deployment once it's set up.
+
+| Step (2026-10-12) | Time | Result |
+|---|---|---|
+| Source stack `-p twdrill`: first admin, a page with content, a Tasks row, an uploaded file | — | seeded |
+| `backup.sh` in the source stack | 22:02:11 → 22:02:13 (2 s) | 3 files, 28 KB |
+| New stack `-p twrestore` (new empty volumes, same `.env` secrets): `up -d postgres backup` | 22:01:48 | empty |
+| `restore.sh latest --yes` | 22:02:19 → 22:02:28 (9 s) | checksums OK |
+| `up -d`, app healthy | 22:02:46 | migrations no-op |
+| Checks on the restored stack | — | **all pass** |
+| Restore again over the now-populated database (same-machine case) | 22:03 | **all pass** |
+
+Checks run against the restored app through its API: the original admin can sign in (and a wrong
+password is rejected); the page title and full document JSON are identical; the Tasks rows are
+identical; the uploaded file downloads with the same SHA-256; full-text search finds the page.
+
+To repeat it: restore a backup from one deployment into a completely fresh one (a separate
+compose project with new volumes, e.g. `docker compose -p drill ...`) and run the same checks.
+On Windows with Git Bash, set `MSYS_NO_PATHCONV=1` first, or Git Bash rewrites `/scripts/...`
+into a Windows path. Repeat the drill:
 - after any infrastructure change,
 - at least once a quarter,
 - before relying on the system for anything you can't afford to lose.

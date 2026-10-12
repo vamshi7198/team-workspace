@@ -218,6 +218,24 @@ autosave is asynchronous, but page loads feel slightly slower. An India region
 **₹2,300–2,600**, around the top of the budget. Hetzner Singapore is ~40–67% above EU prices.
 Pricing changed in 2026 and sources disagree, so verify on the provider page before buying.
 
+### Full cost picture: cash vs. effort
+The table above covers only cash paid to vendors. The other costs are people's time, and
+they are estimates, not guarantees.
+
+| Category | Prototype (laptop + tunnel) | VPS (recommended) |
+|---|---|---|
+| **1. Infrastructure cash, per month** | ₹0 (domain already paid for; electricity not counted) | ≈ ₹950–1,230 (EU) or ≈ ₹2,300–2,600 (India region), from the table above |
+| **2. One-time development effort** | Already spent building the prototype. To go live: ≈ 1–2 days (deploy, tunnel, invite the team, import one Notion teamspace, run the restore drill on the real machine) | Same, plus ≈ ½ day to harden a fresh VPS (SSH keys, firewall, unattended upgrades) |
+| **3. Ongoing maintenance, per month** | ≈ 2–4 hours: apply dependency and security updates (rebuild + redeploy), check that nightly backups ran, answer user questions. Plus ≈ 1 hour each quarter for the restore drill | Same, plus OS patch reboots. Budget the same 2–4 hours |
+| **4. Optional services** | Cloudflare Access gate (free ≤ 50 users); Google Drive off-site copy (included in Workspace storage) | Provider snapshots (+20% of the VPS price); Backblaze B2 instead of Drive (≈ ₹30–60); paid uptime monitoring (not needed; free pings suffice) |
+
+Not included anywhere: AI APIs (none are used), paid editor extensions (none are used), and
+Notion itself. Cancelling the Notion plan is the saving that pays for all of the above.
+
+Developer time is the real cost of owning the tool. A Claude Code session can make most changes,
+but someone on the team must review them, run the tests and deploy. Budget that time as
+maintenance, not as free.
+
 ## 8. Main risks
 
 1. **Scope.** This is a multi-week build. Mitigation: milestone gates; nothing is called done until it is tested.

@@ -18,18 +18,20 @@ function Btn({ active, onClick, label, children }: { active?: boolean; onClick: 
   );
 }
 
+/** Asks for a URL and links the selection (an empty answer removes the link). */
+export async function promptLink(editor: Editor, prompt: ReturnType<typeof useDialogs>["prompt"]) {
+  const prev = editor.getAttributes("link").href as string | undefined;
+  const url = await prompt({ title: prev ? "Edit link" : "Add link", initial: prev ?? "https://", confirmLabel: "Apply" });
+  if (url === null) return;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed === "https://") editor.chain().focus().extendMarkRange("link").unsetLink().run();
+  else editor.chain().focus().extendMarkRange("link").setLink({ href: /^(https?:|mailto:|\/)/i.test(trimmed) ? trimmed : `https://${trimmed}` }).run();
+}
+
 /** Inline formatting toolbar shown over a text selection. */
 export function FormattingToolbar({ editor }: { editor: Editor }) {
   const { prompt } = useDialogs();
-
-  const setLink = async () => {
-    const prev = editor.getAttributes("link").href as string | undefined;
-    const url = await prompt({ title: prev ? "Edit link" : "Add link", initial: prev ?? "https://", confirmLabel: "Apply" });
-    if (url === null) return;
-    const trimmed = url.trim();
-    if (!trimmed || trimmed === "https://") editor.chain().focus().extendMarkRange("link").unsetLink().run();
-    else editor.chain().focus().extendMarkRange("link").setLink({ href: /^(https?:|mailto:|\/)/i.test(trimmed) ? trimmed : `https://${trimmed}` }).run();
-  };
+  const setLink = () => promptLink(editor, prompt);
 
   return (
     <BubbleMenu
@@ -46,7 +48,7 @@ export function FormattingToolbar({ editor }: { editor: Editor }) {
         <Btn label="Bold (Ctrl+B)" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}><Bold className="size-4" /></Btn>
         <Btn label="Italic (Ctrl+I)" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic className="size-4" /></Btn>
         <Btn label="Underline (Ctrl+U)" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}><Underline className="size-4" /></Btn>
-        <Btn label="Strikethrough" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough className="size-4" /></Btn>
+        <Btn label="Strikethrough (Ctrl+Shift+S)" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}><Strikethrough className="size-4" /></Btn>
         <Btn label="Inline code (Ctrl+E)" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}><Code className="size-4" /></Btn>
         <Btn label="Link (Ctrl+K)" active={editor.isActive("link")} onClick={setLink}><Link2 className="size-4" /></Btn>
         <div className="mx-0.5 h-5 w-px bg-border" />

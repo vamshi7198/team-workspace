@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useContext } from "react";
+import type { Role } from "@/lib/roles";
 
-export type WorkspaceSummary = { id: string; name: string; icon: string | null; role: "admin" | "member" };
+export type WorkspaceSummary = { id: string; name: string; icon: string | null; role: Role };
 export type Me = { id: string; name: string; email: string };
 
 type Value = { me: Me; workspace: WorkspaceSummary; workspaces: WorkspaceSummary[] };
